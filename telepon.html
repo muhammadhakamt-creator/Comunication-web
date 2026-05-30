@@ -1,0 +1,522 @@
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Web Walkie-Talkie Multi-Operator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        .nobounce {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .lcd-glow {
+            box-shadow: inset 0 0 15px rgba(34, 197, 94, 0.25), 0 0 10px rgba(34, 197, 94, 0.15);
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col items-center justify-between p-4 nobounce select-none overflow-hidden font-sans">
+
+    <header class="w-full max-w-md flex justify-between items-center py-2 border-b border-gray-900">
+        <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse" id="status-dot"></div>
+            <span class="text-[10px] font-mono uppercase tracking-wider text-gray-400" id="status-text">Memulai...</span>
+        </div>
+        <div class="text-right">
+            <span class="text-[9px] font-mono text-gray-500 block">ID ANDA</span>
+            <span class="text-xs font-mono font-bold text-amber-500 bg-gray-900 px-2 py-0.5 rounded border border-gray-800" id="my-peer-id">MENCARI...</span>
+        </div>
+    </header>
+
+    <main class="w-full max-w-md flex-1 flex flex-col justify-center items-center gap-4 my-2">
+        
+        <div class="w-full bg-slate-950 border-4 border-slate-800 rounded-xl p-3.5 lcd-glow relative overflow-hidden">
+            <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px); background-size: 4px 4px;"></div>
+            
+            <div class="flex justify-between items-start mb-2 relative z-10">
+                <div>
+                    <span class="text-[9px] text-green-600 font-mono block uppercase tracking-widest">CHANNEL</span>
+                    <span class="text-2xl font-mono font-bold text-green-400 tracking-wider" id="lcd-channel">CH-GLOBAL</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-[9px] text-green-600 font-mono block uppercase">SIGNAL</span>
+                    <div class="flex gap-0.5 justify-end mt-1">
+                        <div class="w-1 h-2 bg-green-500" id="sig-1"></div>
+                        <div class="w-1 h-3 bg-green-500" id="sig-2"></div>
+                        <div class="w-1 h-4 bg-green-500" id="sig-3"></div>
+                        <div class="w-1 h-5 bg-green-500" id="sig-4"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-black/60 rounded p-2 border border-green-950/50 font-mono text-xs text-green-400 min-h-[50px] flex flex-col justify-between relative z-10">
+                <div id="lcd-status" class="leading-relaxed">Menghubungkan ke Server Sinyal Multi-Operator...</div>
+                <div class="flex justify-between text-[9px] text-green-600 border-t border-green-950/30 pt-1 mt-1">
+                    <span id="lcd-mode">STANDBY</span>
+                    <span id="lcd-latency">LATENCY: -- ms</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col gap-2.5">
+            <div class="flex justify-between items-center">
+                <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sambungkan Frekuensi</span>
+                <button onclick="reconnectServer()" class="text-[10px] bg-gray-800 hover:bg-gray-750 text-gray-300 px-2 py-0.5 rounded border border-gray-700 transition-colors">
+                    Reset Koneksi
+                </button>
+            </div>
+            
+            <div class="flex gap-2">
+                <div class="relative flex-1">
+                    <i data-lucide="radio" class="absolute left-3 top-2.5 h-4.5 w-4.5 text-gray-500"></i>
+                    <input type="text" id="target-peer-id" placeholder="Masukkan ID HP Rekan" class="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-amber-500 font-mono text-amber-500 placeholder-gray-750">
+                </div>
+                <button id="connect-btn" class="bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-1.5 shadow-lg shadow-amber-900/10">
+                    <i data-lucide="link" class="h-4 w-4"></i>
+                    Connect
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 flex flex-col justify-center items-center w-full max-h-[260px]">
+            <button id="ptt-button" class="w-40 h-40 rounded-full bg-gradient-to-b from-gray-800 to-gray-950 border-8 border-gray-900 shadow-2xl flex flex-col items-center justify-center relative active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed group" disabled>
+                <div class="absolute inset-0 rounded-full border-4 border-gray-700 group-active:border-red-600 group-hover:border-amber-500/30 transition-all"></div>
+                
+                <div class="absolute top-5 flex gap-3 justify-center">
+                    <div class="flex flex-col items-center">
+                        <div class="w-2 h-2 rounded-full bg-gray-850" id="led-tx"></div>
+                        <span class="text-[7px] text-gray-500 mt-0.5">TX</span>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <div class="w-2 h-2 rounded-full bg-gray-850" id="led-rx"></div>
+                        <span class="text-[7px] text-gray-500 mt-0.5">RX</span>
+                    </div>
+                </div>
+
+                <i data-lucide="mic" id="mic-icon" class="h-12 w-12 text-gray-500 group-active:text-red-500 transition-colors mt-2"></i>
+                <span id="ptt-label" class="text-xs font-bold font-mono text-gray-500 uppercase tracking-wider mt-2">OFFLINE</span>
+            </button>
+            <div class="text-[10px] text-gray-500 mt-2 uppercase tracking-widest font-mono">Tekan & Tahan untuk Bicara</div>
+        </div>
+
+        <div class="w-full bg-black border border-gray-900 rounded-lg p-2 font-mono text-[9px] text-gray-400">
+            <div class="flex justify-between border-b border-gray-900 pb-1 mb-1 text-[8px] text-gray-500">
+                <span>STATUS JALUR JARINGAN (TURN/STUN READY)</span>
+                <span class="text-amber-500 cursor-pointer text-[7px]" onclick="clearLogs()">Hapus Log</span>
+            </div>
+            <div id="debug-logs" class="h-14 overflow-y-auto flex flex-col gap-0.5 text-left scrollbar-thin">
+                <div class="text-blue-400">[Sistem] Memuat WebRTC & Jembatan Jaringan...</div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="w-full max-w-md text-center text-[9px] text-gray-600 border-t border-gray-900 pt-2">
+        <p>📡 Mendukung Lintas Operator Seluler (Telkomsel, XL, Indosat, Smartfren, Tri, Wi-Fi)</p>
+    </footer>
+
+    <script>
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playBeep(type) {
+            try {
+                initAudio();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'start') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(980, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                    osc.start();
+                    osc.frequency.setValueAtTime(1300, audioCtx.currentTime + 0.05);
+                    gain.gain.setValueAtTime(0.0, audioCtx.currentTime + 0.1);
+                    osc.stop(audioCtx.currentTime + 0.12);
+                } else if (type === 'end') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+                    osc.start();
+                    osc.frequency.setValueAtTime(800, audioCtx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.06, audioCtx.currentTime + 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
+                    osc.stop(audioCtx.currentTime + 0.25);
+                }
+            } catch (e) {
+                console.warn("Audio belum diinisiasi pengguna.", e);
+            }
+        }
+    </script>
+
+    <script>
+        lucide.createIcons();
+
+        // DOM elements
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const myPeerIdEl = document.getElementById('my-peer-id');
+        const targetPeerIdInput = document.getElementById('target-peer-id');
+        const connectBtn = document.getElementById('connect-btn');
+        const lcdStatus = document.getElementById('lcd-status');
+        const lcdMode = document.getElementById('lcd-mode');
+        const lcdLatency = document.getElementById('lcd-latency');
+        const pttButton = document.getElementById('ptt-button');
+        const pttLabel = document.getElementById('ptt-label');
+        const micIcon = document.getElementById('mic-icon');
+        const ledTx = document.getElementById('led-tx');
+        const ledRx = document.getElementById('led-rx');
+        const debugLogs = document.getElementById('debug-logs');
+
+        // States
+        let myId = 'WT-' + Math.floor(10000 + Math.random() * 90000);
+        let targetId = null;
+        let mqttClient = null;
+        let peerConnection = null;
+        let localStream = null;
+        let isTransmitting = false;
+        let isConnectedToPeer = false;
+
+        const MQTT_BROKER = 'wss://broker.hivemq.com:8000/mqtt'; 
+        const SIGNAL_TOPIC_PREFIX = 'wt_signal_v2/';
+
+        // KONFIGURASI PENTING: STUN & TURN Server Publik untuk Menembus Pembatasan Operator Seluler
+        const rtcConfig = {
+            iceServers: [
+                // STUN Google (Mencari IP jika berada di jaringan terbuka/sama)
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                
+                // TURN OpenRelay (Sebagai jembatan data suara jika berbeda operator/NAT ketat)
+                { 
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                { 
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceTransportPolicy: 'all' // Mengizinkan semua jenis jalur koneksi (Direct maupun Relay)
+        };
+
+        function log(message, type = 'info') {
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let color = 'text-gray-400';
+            if (type === 'success') color = 'text-green-400';
+            if (type === 'error') color = 'text-red-400';
+            if (type === 'warning') color = 'text-amber-400';
+
+            const logItem = document.createElement('div');
+            logItem.className = color;
+            logItem.innerText = `[${time}] ${message}`;
+            debugLogs.appendChild(logItem);
+            debugLogs.scrollTop = debugLogs.scrollHeight;
+        }
+
+        function clearLogs() {
+            debugLogs.innerHTML = '<div class="text-gray-500">[System] Log dibersihkan.</div>';
+        }
+
+        // 1. MEMULAI KONEKSI KE BROKER MQTT
+        function initMQTT() {
+            log("Menghubungkan ke jaringan pengendali sinyal...", "info");
+            const startTime = Date.now();
+
+            mqttClient = mqtt.connect(MQTT_BROKER, {
+                keepalive: 30,
+                clientId: 'client_' + myId,
+                clean: true
+            });
+
+            mqttClient.on('connect', () => {
+                const latency = Date.now() - startTime;
+                log(`Server Sinyal Siap dalam ${latency}ms!`, "success");
+                lcdLatency.innerText = `PING: ${latency} ms`;
+                
+                myPeerIdEl.innerText = myId;
+                statusDot.className = "w-3 h-3 rounded-full bg-green-500";
+                statusText.innerText = "ONLINE / AKTIF";
+                lcdStatus.innerText = "Saluran Bersih. Beritahukan ID Anda ke rekan.";
+                
+                pttButton.removeAttribute('disabled');
+                pttLabel.innerText = "SIAP TRANSMISI";
+                pttLabel.className = "text-xs font-bold font-mono text-gray-400 uppercase tracking-wider mt-2";
+
+                mqttClient.subscribe(SIGNAL_TOPIC_PREFIX + myId, (err) => {
+                    if (err) log("Gagal mendaftarkan jalur komunikasi pribadi", "error");
+                });
+            });
+
+            mqttClient.on('message', async (topic, message) => {
+                try {
+                    const signal = JSON.parse(message.toString());
+                    if (signal.sender === myId) return;
+
+                    log(`Menerima instruksi jaringan dari ${signal.sender}: ${signal.type}`, "info");
+
+                    if (signal.type === 'offer') {
+                        targetId = signal.sender;
+                        targetPeerIdInput.value = targetId;
+                        await setupPeerConnection(false);
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        
+                        sendSignal({ type: 'answer', sdp: answer });
+                        updateUIConnected();
+                    } 
+                    else if (signal.type === 'answer') {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                        updateUIConnected();
+                    } 
+                    else if (signal.type === 'ice-candidate') {
+                        if (peerConnection) {
+                            await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(e => {});
+                        }
+                    }
+                    else if (signal.type === 'PTT_ON') {
+                        lcdStatus.innerText = `[${signal.sender}] Sedang Mengirim Suara...`;
+                        ledRx.className = "w-2 h-2 rounded-full bg-green-500 animate-pulse";
+                        playBeep('start');
+                        lcdMode.innerText = "RECEIVING (RX)";
+                    }
+                    else if (signal.type === 'PTT_OFF') {
+                        lcdStatus.innerText = "Saluran Kembali Bersih (Standby)";
+                        ledRx.className = "w-2 h-2 rounded-full bg-gray-850";
+                        playBeep('end');
+                        lcdMode.innerText = "STANDBY";
+                    }
+                } catch (err) {
+                    console.error("Gagal membaca data enkripsi sinyal:", err);
+                }
+            });
+
+            mqttClient.on('error', (err) => {
+                log(`Masalah Jaringan: ${err.message}`, "error");
+                statusDot.className = "w-3 h-3 rounded-full bg-red-500";
+                statusText.innerText = "DISCONNECTED";
+            });
+        }
+
+        function sendSignal(payload) {
+            if (mqttClient && targetId) {
+                payload.sender = myId;
+                mqttClient.publish(SIGNAL_TOPIC_PREFIX + targetId, JSON.stringify(payload));
+            }
+        }
+
+        // 2. SETUP WEBRTC PEER CONNECTION DENGAN JALUR PERLINDUNGAN JARINGAN
+        async function setupPeerConnection(isInitiator) {
+            log("Membuka gerbang enkripsi WebRTC...", "info");
+            peerConnection = new RTCPeerConnection(rtcConfig);
+
+            // Cari rute terbaik (Direct IP / Relay TURN) untuk menembus operator seluler
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendSignal({ type: 'ice-candidate', candidate: event.candidate });
+                    if(event.candidate.candidate.includes("relay")) {
+                        log("Jalur Aman TURN Server Berhasil Diaktifkan!", "success");
+                    }
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                log(`Status Rute Jaringan: ${peerConnection.iceConnectionState}`, "warning");
+                if (peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'disconnected') {
+                    lcdStatus.innerText = "Koneksi terhambat operator. Mencoba rute cadangan...";
+                }
+            };
+
+            peerConnection.ontrack = (event) => {
+                log("Menerima aliran suara rekan lintas operator.", "success");
+                const remoteStream = event.streams[0];
+                playRemoteStream(remoteStream);
+            };
+
+            await getMicrophoneAccess();
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+        }
+
+        // Tombol Hubungkan manual
+        connectBtn.addEventListener('click', async () => {
+            targetId = targetPeerIdInput.value.trim().toUpperCase();
+            if (!targetId) {
+                lcdStatus.innerText = "Error: Isi ID HP Rekan terlebih dahulu!";
+                return;
+            }
+
+            log(`Membangun jembatan komunikasi dengan: ${targetId}...`, "info");
+            lcdStatus.innerText = `Menghubungkan jaringan ke ${targetId}...`;
+
+            await setupPeerConnection(true);
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            sendSignal({ type: 'offer', sdp: offer });
+        });
+
+        async function getMicrophoneAccess() {
+            if (localStream) return true;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                log("Akses Mikrofon Aman Terbuka.", "success");
+                // Set agar di awal tidak langsung bocor suaranya sebelum tombol ditekan
+                localStream.getAudioTracks().forEach(track => track.enabled = false);
+                return true;
+            } catch (err) {
+                log("Gagal mengakses mikrofon. Pastikan situs dibuka lewat HTTPS.", "error");
+                lcdStatus.innerText = "ERROR: Browser memblokir mikrofon.";
+                return false;
+            }
+        }
+
+        function updateUIConnected() {
+            isConnectedToPeer = true;
+            lcdStatus.innerText = `Terhubung Lintas Jaringan: ${targetId}`;
+            statusText.innerText = "CONNECTED";
+            statusDot.className = "w-3 h-3 rounded-full bg-blue-500";
+            log(`Koneksi Lintas Operator Siap!`, "success");
+        }
+
+        let audioElem = null;
+        function playRemoteStream(stream) {
+            if (!audioElem) {
+                audioElem = document.createElement('audio');
+                document.body.appendChild(audioElem);
+            }
+            audioElem.srcObject = stream;
+            audioElem.play()
+                .then(() => log("Speaker aktif menyuarakan transmisi.", "info"))
+                .catch(e => log(`Autoplay tertahan keamanan browser. Ketuk layar HP.`, "warning"));
+        }
+
+        // ==========================================
+        // PUSH-TO-TALK (PTT) TRANSMISSION CONTROL
+        // ==========================================
+
+        async function startTransmission() {
+            if (isTransmitting) return;
+            initAudio();
+
+            const hasMic = await getMicrophoneAccess();
+            if (!hasMic) return;
+
+            if (navigator.vibrate) navigator.vibrate(50);
+
+            isTransmitting = true;
+            playBeep('start');
+
+            // Kirim sinyal lampu merah (TX) ke rekan
+            sendSignal({ type: 'PTT_ON' });
+
+            // Hidupkan mikrofon lokal untuk disalurkan lewat jembatan WebRTC
+            if (localStream) {
+                localStream.getAudioTracks().forEach(track => track.enabled = true);
+            }
+
+            // Update UI
+            lcdStatus.innerText = "MEMANCARKAN SUARA (TX)...";
+            lcdMode.innerText = "TRANSMITTING";
+            pttLabel.innerText = "BICARA SEKARANG!";
+            pttLabel.className = "text-xs font-bold font-mono text-red-500 uppercase tracking-wider mt-2";
+            micIcon.className = "h-12 w-12 text-red-500 animate-pulse mt-2";
+            ledTx.className = "w-2 h-2 rounded-full bg-red-500 animate-pulse";
+            pttButton.className = "w-40 h-40 rounded-full bg-gradient-to-b from-red-950/30 to-slate-950 border-8 border-red-600 shadow-2xl flex flex-col items-center justify-center relative scale-95 transition-all cursor-pointer";
+            log("Transmisi keluar dipancarkan (TX)...", "info");
+        }
+
+        function stopTransmission() {
+            if (!isTransmitting) return;
+            isTransmitting = false;
+
+            if (navigator.vibrate) navigator.vibrate(30);
+            playBeep('end');
+
+            // Kirim sinyal matikan transmisi ke rekan
+            sendSignal({ type: 'PTT_OFF' });
+
+            // Matikan mikrofon lagi agar aman dan hemat data kuota internet
+            if (localStream) {
+                localStream.getAudioTracks().forEach(track => track.enabled = false);
+            }
+
+            // Reset UI
+            lcdStatus.innerText = "Saluran kembali kosong (Standby)";
+            lcdMode.innerText = "STANDBY";
+            pttLabel.innerText = "SIAP TRANSMISI";
+            pttLabel.className = "text-xs font-bold font-mono text-gray-500 uppercase tracking-wider mt-2";
+            micIcon.className = "h-12 w-12 text-gray-500 mt-2";
+            ledTx.className = "w-2 h-2 rounded-full bg-gray-850";
+            pttButton.className = "w-40 h-40 rounded-full bg-gradient-to-b from-gray-800 to-gray-950 border-8 border-gray-900 shadow-2xl flex flex-col items-center justify-center relative active:scale-95 transition-all cursor-pointer group";
+            log("Transmisi suara ditutup.", "info");
+        }
+
+        function reconnectServer() {
+            log("Mereset sistem pencari rute...", "warning");
+            if (mqttClient) mqttClient.end();
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            statusDot.className = "w-3 h-3 rounded-full bg-red-500 animate-pulse";
+            statusText.innerText = "Membangun Ulang...";
+            initMQTT();
+        }
+
+        // Listener interaksi tombol
+        pttButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startTransmission();
+        });
+        pttButton.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            stopTransmission();
+        });
+
+        pttButton.addEventListener('mousedown', () => startTransmission());
+        pttButton.addEventListener('mouseup', () => stopTransmission());
+        pttButton.addEventListener('mouseleave', () => stopTransmission());
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && document.activeElement !== targetPeerIdInput) {
+                e.preventDefault();
+                startTransmission();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') stopTransmission();
+        });
+
+        // Jalankan sistem
+        window.onload = () => {
+            initMQTT();
+            getMicrophoneAccess();
+        };
+    </script>
+</body>
+</html>
+
+
+```
